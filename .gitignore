@@ -1,0 +1,9 @@
+.env
+schema_update_auth.sql
+schema_update_avatars.sql
+schema_update_cards.sql
+schema.sql
+venv/
+scripts/
+tests/
+.pytest_cache/
