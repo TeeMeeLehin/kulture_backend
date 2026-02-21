@@ -14,7 +14,7 @@ def get_modules(child: dict = Depends(get_current_child_query)):
     Fetch all modules for a specific child (based on their language).
     Calculates locked/unlocked status for levels.
     """
-    language = child['language']
+    language = child['language'].lower()
     child_id = child['id']
     
     # 1. Fetch Modules with Levels (Join)
