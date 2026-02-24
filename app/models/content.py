@@ -34,6 +34,7 @@ class DialogueNodeBase(BaseModel):
     audio_url: Optional[str] = None
     speaker_type: Literal['persona', 'user', 'narrator']
     expected_response: Optional[str] = None
+    options: Optional[List[dict]] = None
     points_max: int = 1
     order_index: int
 
@@ -65,4 +66,20 @@ class Level(LevelBase):
 class Module(ModuleBase):
     id: UUID
     levels: List[Level] = []
+    model_config = ConfigDict(from_attributes=True)
+
+class ModulesResponse(BaseModel):
+    child_avatar_url: Optional[str] = None
+    child_respect_score: int
+    modules: List[Module]
+
+class ArtifactBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    level_id: Optional[UUID] = None
+
+class Artifact(ArtifactBase):
+    id: UUID
+    created_at: str
     model_config = ConfigDict(from_attributes=True)

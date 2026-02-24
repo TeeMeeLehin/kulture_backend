@@ -4,6 +4,7 @@ from app.api.auth import router as auth_router
 from app.api.profiles import router as profiles_router
 from app.api.content import router as content_router
 from app.api.game import router as game_router
+from app.api.artifacts import router as artifacts_router
 from app.core.config import settings
 from app.core.logging import LoggingMiddleware, global_exception_handler
 
@@ -24,6 +25,7 @@ app.include_router(auth_router, tags=["Authentication"])
 app.include_router(profiles_router, prefix="/profiles", tags=["Profiles"])
 app.include_router(content_router, prefix="/content", tags=["Content"])
 app.include_router(game_router, prefix="/game", tags=["Gameplay"])
+app.include_router(artifacts_router, prefix="/artifacts", tags=["Artifacts"])
 
 @app.get("/")
 def root():

@@ -23,94 +23,77 @@ class ScenarioCompleteRequest(BaseModel):
     max_score: int
     stars_earned: int 
 
-@router.post("/attempt", response_model=AttemptResponse)
-async def submit_attempt(
-    child_id: UUID = Form(...),
-    node_id: UUID = Form(...),
-    audio_file: Optional[UploadFile] = File(None),
-    # Optional text fallback for debugging if needed, but primary is audio
-    transcribed_text: Optional[str] = Form(None), 
-    parent: Parent = Depends(get_current_parent)
-):
-    """
-    Submits an attempt for a dialogue node.
-    Accepts an audio file (multipart/form-data) OR transcribed_text (for dev).
-    """
-    # Validate Child Access
-    validate_child_access(str(child_id), str(parent.id))
-
-    # 1. Fetch the node to get expected response
-    res = supabase.table("scenario_nodes").select("expected_response, points_max").eq("id", str(node_id)).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Node not found")
-    
-    node = res.data[0]
-    expected = node['expected_response']
-    
-    if not expected:
-        return {"correct": True, "score": 0, "feedback": "Continue", "match_percentage": 100}
-
-    # 2. Transcription Logic (Stub)
-    user_text = ""
-    
-    if audio_file:
-        # Mock STT: For now, if audio is sent, assume it's correct? 
-        # Or better: random failure chance? 
-        # For simulation flow, we need deterministic success.
-        # Let's say: If audio file size > 0, we assume it matches 'expected' (Perfect STT Stub)
-        # UNLESS the filename contains "fail".
-        if "fail" in audio_file.filename:
-            user_text = "wrong answer"
-        else:
-            user_text = expected # Perfect match simulation
-            
-        print(f" Received Audio: {audio_file.filename} -> Mock Transcribed: '{user_text}'")
-        
-    elif transcribed_text:
-        user_text = transcribed_text
-    else:
-        # No input
-        pass
-
-    # 3. Logic: Compare text
-    # Simple Fuzzy Match
-    ratio = fuzz.ratio(user_text.lower(), expected.lower())
-    
-    score = 0.0
-    feedback = "Try again"
-    correct = False
-    
-    if ratio >= 85:
-        score = float(node.get('points_max', 1))
-        feedback = "Correct"
-        correct = True
-    elif ratio >= 60:
-        score = float(node.get('points_max', 1)) * 0.5
-        feedback = "Almost"
-        correct = True 
-    
-    return {
-        "correct": correct,
-        "score": score,
-        "feedback": feedback,
-        "match_percentage": ratio,
-        "transcription": user_text
-    }
-
-@router.post("/complete")
-async def complete_scenario(data: ScenarioCompleteRequest, parent: Parent = Depends(get_current_parent)):
+@router.post("/attempt")
+async def submit_scenario_attempt(data: ScenarioCompleteRequest, parent: Parent = Depends(get_current_parent)):
     # Validate Child Access
     validate_child_access(str(data.child_id), str(parent.id))
 
     # Save the attempt
     attempt_data = data.model_dump(mode='json')
-    attempt_data['passed'] = data.score_earned >= (data.max_score * 0.7) 
+    # Require at least ~60% to pass (e.g., 2 out of 3 questions correct)
+    attempt_data['passed'] = data.score_earned >= (data.max_score * 0.6) 
 
     res = supabase.table("child_scenario_attempts").insert(attempt_data).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Failed to save progress")
         
-    return {"status": "success", "saved_id": res.data[0]['id']}
+    # Check for level completion and unlock artifacts
+    unlocked_artifact = None
+    
+    if attempt_data['passed']:
+        try:
+            # 1. Fetch the child's current stats to update them
+            child_res = supabase.table("children").select("respect_score, current_level").eq("id", str(data.child_id)).execute()
+            if child_res.data:
+                child = child_res.data[0]
+                new_respect = child.get("respect_score", 0) + data.score_earned
+                new_level = child.get("current_level", 1)
+                
+                # Check level progression
+                s_res = supabase.table("scenarios").select("level_id").eq("id", str(data.scenario_id)).execute()
+                if s_res.data:
+                    level_id = s_res.data[0]['level_id']
+                    
+                    all_s_res = supabase.table("scenarios").select("id").eq("level_id", level_id).execute()
+                    level_scenario_ids = {s['id'] for s in all_s_res.data}
+                    
+                    passed_res = supabase.table("child_scenario_attempts").select("scenario_id").eq("child_id", str(data.child_id)).eq("passed", True).execute()
+                    passed_scenario_ids = {p['scenario_id'] for p in passed_res.data}
+                    
+                    if level_scenario_ids and level_scenario_ids.issubset(passed_scenario_ids):
+                        # Level completely passed! Check for artifact details
+                        art_res = supabase.table("artifacts").select("id, name, description, image_url").eq("level_id", level_id).execute()
+                        if art_res.data:
+                            unlocked_artifact = art_res.data[0]
+                            artifact_id = unlocked_artifact['id']
+                            has_art = supabase.table("child_artifacts").select("id").eq("child_id", str(data.child_id)).eq("artifact_id", artifact_id).execute()
+                            
+                            if not has_art.data:
+                                try:
+                                    supabase.table("child_artifacts").insert({
+                                        "child_id": str(data.child_id),
+                                        "artifact_id": artifact_id
+                                    }).execute()
+                                    # Since they just completed this level for the FIRST time and got the artifact, bump their current level
+                                    new_level += 1
+                                except Exception as e:
+                                    print(f"Error unlocking artifact: {e}")
+                
+                # 2. Save the updated stats to the DB
+                supabase.table("children").update({
+                    "respect_score": new_respect,
+                    "current_level": new_level
+                }).eq("id", str(data.child_id)).execute()
+                
+        except Exception as e:
+            print(f"Error updating child stats: {e}")
+
+    return {
+        "status": "success", 
+        "saved_id": res.data[0]['id'],
+        "passed": attempt_data['passed'],
+        "unlocked_artifact": unlocked_artifact
+    }
     
 @router.post("/cards/complete")
 async def complete_card(data: dict, parent: Parent = Depends(get_current_parent)):

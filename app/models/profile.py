@@ -9,8 +9,7 @@ class ChildBase(BaseModel):
     gender: str # 'boy' or 'girl'
 
 class ChildCreate(ChildBase):
-    pass
-    # avatar_id is removed as it's auto-assigned
+    avatar_url: str
 
 class Child(ChildBase):
     id: UUID

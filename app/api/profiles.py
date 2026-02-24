@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from typing import List, Dict
+from collections import defaultdict
 from app.api.deps import get_current_parent
 from app.models.auth import Parent
 from app.models.profile import ChildCreate, ChildResponse, Child
@@ -7,23 +8,32 @@ from app.db.supabase import supabase
 
 router = APIRouter()
 
+@router.get("/avatars", response_model=Dict[str, Dict[str, List[str]]])
+def get_avatar_dictionary():
+    """
+    Returns a highly efficient nested dictionary of all avatars for O(1) frontend lookup.
+    Format: { "yoruba": { "boy": ["url1", "url2"], "girl": ["url3"] }, "twi": ... }
+    """
+    response = supabase.table("avatars").select("*").execute()
+    
+    # Build dictionary
+    avatar_dict = defaultdict(lambda: defaultdict(list))
+    
+    for av in response.data:
+        lang = av.get("language", "").lower()
+        gen = av.get("gender", "").lower()
+        url = av.get("image_url")
+        if lang and gen and url:
+            avatar_dict[lang][gen].append(url)
+            
+    return dict(avatar_dict)
+
 @router.post("/kids", response_model=dict)
 def create_child(child: ChildCreate, parent: Parent = Depends(get_current_parent)):
     child_data = child.model_dump()
     child_data["parent_id"] = str(parent.id)
     
-    # Auto-Assign Avatar
-    # Logic: Fetch avatar URL from avatars table where language & gender match
-    # If no match, use a default fallback
-    
-    av_res = supabase.table("avatars").select("image_url").eq("language", child.language.lower()).eq("gender", child.gender.lower()).execute()
-    
-    if av_res.data:
-        child_data["avatar_url"] = av_res.data[0]["image_url"]
-    else:
-        # Fallback URL or Generic
-        child_data["avatar_url"] = "https://api.dicebear.com/7.x/adventurer/svg?seed=Genercic"
-
+    # We no longer auto-assign; we expect child.avatar_url to be provided
     response = supabase.table("children").insert(child_data).execute()
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create child profile")

@@ -3,12 +3,12 @@ from typing import List
 from uuid import UUID
 from app.api.deps import get_current_parent, get_current_child_query
 from app.models.auth import Parent
-from app.models.content import Module, Level, ScenarioDetail, Scenario, DialogueNode
+from app.models.content import Module, Level, ScenarioDetail, Scenario, DialogueNode, ModulesResponse
 from app.db.supabase import supabase
 
 router = APIRouter()
 
-@router.get("/modules", response_model=List[Module])
+@router.get("/modules", response_model=ModulesResponse)
 def get_modules(child: dict = Depends(get_current_child_query)):
     """
     Fetch all modules for a specific child (based on their language).
@@ -17,8 +17,8 @@ def get_modules(child: dict = Depends(get_current_child_query)):
     language = child['language'].lower()
     child_id = child['id']
     
-    # 1. Fetch Modules with Levels (Join)
-    response = supabase.table("modules").select("*, levels(*)").eq("language", language).order("order_index").execute()
+    # 1. Fetch Modules with Levels and Scenarios (Join)
+    response = supabase.table("modules").select("*, levels(*, scenarios(*))").eq("language", language).order("order_index").execute()
     if not response.data:
         return []
 
@@ -36,12 +36,12 @@ def get_modules(child: dict = Depends(get_current_child_query)):
         previous_level_completed = True # First level is always available
         
         for level in m_data.get('levels', []):
-            # Fetch scenarios for this level to check completion
-            # (Optimized: we could have fetched this in step 1 with nested join if supabase supports deep nesting easily, 
-            # but select('*, levels(*, scenarios(id))') might work. For now, separate query is safer for Pydantic mapping).
-            
-            scenarios_res = supabase.table("scenarios").select("id").eq("level_id", level['id']).execute()
-            level_scenario_ids = {s['id'] for s in scenarios_res.data}
+            if 'scenarios' in level:
+                level['scenarios'].sort(key=lambda x: x.get('order_index', 0))
+            else:
+                level['scenarios'] = []
+                
+            level_scenario_ids = {s['id'] for s in level['scenarios']}
             
             is_completed = False
             if level_scenario_ids:
@@ -59,7 +59,11 @@ def get_modules(child: dict = Depends(get_current_child_query)):
         
         modules.append(Module(**m_data))
         
-    return modules
+    return {
+        "child_avatar_url": child.get('avatar_url'),
+        "child_respect_score": child.get('respect_score', 0),
+        "modules": modules
+    }
 
 @router.get("/levels/{level_id}", response_model=Level)
 def get_level_details(level_id: UUID, parent: Parent = Depends(get_current_parent)):
