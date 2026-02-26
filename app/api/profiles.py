@@ -3,7 +3,7 @@ from typing import List, Dict
 from collections import defaultdict
 from app.api.deps import get_current_parent
 from app.models.auth import Parent
-from app.models.profile import ChildCreate, ChildResponse, Child
+from app.models.profile import ChildCreate, ChildResponse, Child, ParentDashboardResponse, ChildDashboard, ChildProgress
 from app.db.supabase import supabase
 
 router = APIRouter()
@@ -48,3 +48,37 @@ def get_child_profiles(parent: Parent = Depends(get_current_parent)):
         return []
         
     return [Child(**item) for item in response.data]
+
+@router.get("/parent/dashboard", response_model=ParentDashboardResponse)
+def get_parent_dashboard(parent: Parent = Depends(get_current_parent)):
+    """
+    Returns an aggregated view for the parent, including their account info,
+    and a list of all their children along with their gameplay progression stats.
+    """
+    children_res = supabase.table("children").select("*").eq("parent_id", str(parent.id)).execute()
+    children_data = children_res.data or []
+    
+    dashboard_children = []
+    
+    for c in children_data:
+        # Calculate scenarios passed
+        scenarios_res = supabase.table("child_scenario_attempts").select("id").eq("child_id", str(c['id'])).eq("passed", True).execute()
+        scenarios_passed = len(scenarios_res.data) if scenarios_res.data else 0
+        
+        # Calculate artifacts unlocked
+        artifacts_res = supabase.table("child_artifacts").select("id").eq("child_id", str(c['id'])).execute()
+        artifacts_unlocked = len(artifacts_res.data) if artifacts_res.data else 0
+        
+        child_obj = Child(**c)
+        progress = ChildProgress(scenarios_passed=scenarios_passed, artifacts_unlocked=artifacts_unlocked)
+        
+        dashboard_children.append(
+            ChildDashboard(**child_obj.model_dump(), progress=progress)
+        )
+        
+    return ParentDashboardResponse(
+        parent_name=parent.full_name,
+        parent_email=parent.email,
+        subscription_status="Active (Free Trial (Expires in 7 days))",
+        children=dashboard_children
+    )

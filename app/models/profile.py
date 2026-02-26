@@ -24,3 +24,16 @@ class Child(ChildBase):
 class ChildResponse(BaseModel):
     status: str
     data: Child
+
+class ChildProgress(BaseModel):
+    scenarios_passed: int
+    artifacts_unlocked: int
+
+class ChildDashboard(Child):
+    progress: ChildProgress
+
+class ParentDashboardResponse(BaseModel):
+    parent_name: Optional[str] = None
+    parent_email: str
+    subscription_status: str
+    children: list[ChildDashboard]

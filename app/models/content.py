@@ -13,6 +13,7 @@ class ModuleBase(BaseModel):
 class LevelBase(BaseModel):
     title: str
     description: Optional[str] = None
+    icon_url: Optional[str] = None
     order_index: int
     pass_threshold_points: int
     status: str = "locked" # locked, available, completed
