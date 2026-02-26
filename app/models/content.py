@@ -48,6 +48,8 @@ class Persona(PersonaBase):
 class DialogueNode(DialogueNodeBase):
     id: UUID
     persona_id: Optional[UUID] = None
+    persona_name: Optional[str] = None
+    persona_avatar_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class Scenario(ScenarioBase):

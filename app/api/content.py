@@ -93,8 +93,18 @@ def get_scenario_play_data(scenario_id: UUID, parent: Parent = Depends(get_curre
         
     scenario = ScenarioDetail(**s_res.data[0])
     
-    # Fetch Dialogue Nodes
-    n_res = supabase.table("scenario_nodes").select("*").eq("scenario_id", str(scenario_id)).order("order_index").execute()
-    scenario.nodes = [DialogueNode(**n) for n in n_res.data]
+    # Fetch Dialogue Nodes and join Personas
+    n_res = supabase.table("scenario_nodes").select("*, personas(name, avatar_url)").eq("scenario_id", str(scenario_id)).order("order_index").execute()
+    
+    nodes_data = []
+    for n in n_res.data:
+        # Extract the joined persona data if it exists
+        persona_data = n.pop('personas', None)
+        if persona_data:
+            n['persona_name'] = persona_data.get('name')
+            n['persona_avatar_url'] = persona_data.get('avatar_url')
+        nodes_data.append(DialogueNode(**n))
+        
+    scenario.nodes = nodes_data
     
     return scenario
